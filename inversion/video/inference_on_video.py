@@ -21,6 +21,7 @@ from utils.common import tensor2im
 from utils.inference_utils import get_average_image, run_on_batch, load_encoder, IMAGE_TRANSFORMS
 
 
+
 @pyrallis.wrap()
 def run_inference_on_video(video_opts: VideoConfig):
     # prepare all the output paths
@@ -28,10 +29,10 @@ def run_inference_on_video(video_opts: VideoConfig):
 
     # parse video
     video_handler = VideoHandler(video_path=video_opts.video_path,
-                                output_path=video_opts.output_path,
-                                raw_frames_path=video_opts.raw_frames_path,
-                                aligned_frames_path=video_opts.aligned_frames_path,
-                                cropped_frames_path=video_opts.cropped_frames_path)
+                                 output_path=video_opts.output_path,
+                                 raw_frames_path=video_opts.raw_frames_path,
+                                 aligned_frames_path=video_opts.aligned_frames_path,
+                                 cropped_frames_path=video_opts.cropped_frames_path)
     video_handler.parse_video()
 
     aligned_paths, cropped_paths = video_handler.get_input_paths()
@@ -43,7 +44,8 @@ def run_inference_on_video(video_opts: VideoConfig):
         cropped_images = cropped_images[:video_opts.max_images]
 
     # load pretrained encoder
-    net, opts = load_encoder(video_opts.checkpoint_path, test_opts=video_opts, generator_path=video_opts.generator_path)
+    net, opts = load_encoder(video_opts.checkpoint_path,
+                             test_opts=video_opts, generator_path=video_opts.generator_path)
 
     # loads/computes landmarks transforms for the video frames
     landmarks_handler = LandmarksHandler(output_path=video_opts.output_path,
@@ -64,11 +66,14 @@ def run_inference_on_video(video_opts: VideoConfig):
     results_latents_path = opts.output_path / "latents.npy"
     np.save(results_latents_path, np.array(results["result_latents"]))
 
-    result_images = [np.array(tensor2im(im)) for im in results["result_images"]]
+    result_images = [np.array(tensor2im(im))
+                     for im in results["result_images"]]
     result_latents = np.array(list(results["result_latents"].values()))
-    landmarks_transforms = np.array(list(results["landmarks_transforms"]))
+    landmarks_transforms = np.array(
+        map(lambda x: x.cpu(), list(results["landmarks_transforms"])))
 
-    result_images_smoothed = postprocess_and_smooth_inversions(results, net, video_opts)
+    result_images_smoothed = postprocess_and_smooth_inversions(
+        results, net, video_opts)
 
     # get video reconstruction
     generate_reconstruction_videos(input_images=cropped_images,
@@ -78,7 +83,8 @@ def run_inference_on_video(video_opts: VideoConfig):
                                    opts=video_opts)
 
     if opts.interfacegan_directions is not None:
-        editor = InterFaceGANVideoEditor(generator=net.decoder, opts=video_opts)
+        editor = InterFaceGANVideoEditor(
+            generator=net.decoder, opts=video_opts)
         for interfacegan_edit in video_opts.interfacegan_edits:
             edit_images_start, edit_images_end, edit_latents_start, edit_latents_end = editor.edit(
                 edit_direction=interfacegan_edit.direction,
@@ -87,8 +93,10 @@ def run_inference_on_video(video_opts: VideoConfig):
                 result_latents=result_latents,
                 landmarks_transforms=landmarks_transforms
             )
-            edited_images_start_smoothed = editor.postprocess_and_smooth_edits(results, edit_latents_start, video_opts)
-            edited_images_end_smoothed = editor.postprocess_and_smooth_edits(results, edit_latents_end, video_opts)
+            edited_images_start_smoothed = editor.postprocess_and_smooth_edits(
+                results, edit_latents_start, video_opts)
+            edited_images_end_smoothed = editor.postprocess_and_smooth_edits(
+                results, edit_latents_end, video_opts)
             editor.generate_edited_video(input_images=cropped_images,
                                          result_images_smoothed=result_images_smoothed,
                                          edited_images_smoothed=edited_images_start_smoothed,
@@ -108,7 +116,8 @@ def run_inference_on_video(video_opts: VideoConfig):
                                                         beta=styleclip_edit.beta,
                                                         result_latents=result_latents,
                                                         landmarks_transforms=landmarks_transforms)
-            edited_images_smoothed = editor.postprocess_and_smooth_edits(results, edited_latents, video_opts)
+            edited_images_smoothed = editor.postprocess_and_smooth_edits(
+                results, edited_latents, video_opts)
             editor.generate_edited_video(input_images=cropped_images,
                                          result_images_smoothed=result_images_smoothed,
                                          edited_images_smoothed=edited_images_smoothed,
@@ -118,7 +127,8 @@ def run_inference_on_video(video_opts: VideoConfig):
 
 def run_inference(input_paths: List[Path], input_images: List, landmarks_transforms: Dict[str, Any], net,
                   opts: TrainOptions):
-    results = {"source_images": [], "result_images": [], "result_latents": {}, "landmarks_transforms": []}
+    results = {"source_images": [], "result_images": [],
+               "result_latents": {}, "landmarks_transforms": []}
     with torch.no_grad():
         avg_image = get_average_image(net)
     # run inference one frame at a time (technically can be run in batches, but done for simplicity)
@@ -128,7 +138,8 @@ def run_inference(input_paths: List[Path], input_images: List, landmarks_transfo
         if landmarks_transforms is not None:
             if image_name not in landmarks_transforms:
                 continue
-            image_landmarks_transform = torch.from_numpy(landmarks_transforms[image_name][-1]).cuda()
+            image_landmarks_transform = torch.from_numpy(
+                landmarks_transforms[image_name][-1]).cuda()
         else:
             image_landmarks_transform = None
         with torch.no_grad():

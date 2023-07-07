@@ -11,7 +11,8 @@ class InferenceDataset(Dataset):
 
     def __init__(self, root: Path, landmarks_transforms_path: Path = None, transform=None):
         self.paths = sorted(data_utils.make_dataset(root))
-        self.landmarks_transforms = self._get_landmarks_transforms(landmarks_transforms_path)
+        self.landmarks_transforms = self._get_landmarks_transforms(
+            landmarks_transforms_path)
         self.transform = transform
 
     def __len__(self):
@@ -20,8 +21,10 @@ class InferenceDataset(Dataset):
     def _get_landmarks_transforms(self, landmarks_transforms_path):
         if landmarks_transforms_path is not None:
             if not landmarks_transforms_path.exists():
-                raise ValueError(f"Invalid path for landmarks transforms: {landmarks_transforms_path}")
-            landmarks_transforms = np.load(landmarks_transforms_path, allow_pickle=True).item()
+                raise ValueError(
+                    f"Invalid path for landmarks transforms: {landmarks_transforms_path}")
+            landmarks_transforms = np.load(
+                landmarks_transforms_path, allow_pickle=True).item()
             # filter out images not appearing in landmarks transforms
             valid_files = list(landmarks_transforms.keys())
             self.paths = [f for f in self.paths if f.name in valid_files]

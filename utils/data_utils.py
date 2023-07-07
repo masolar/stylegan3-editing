@@ -18,6 +18,7 @@ def make_dataset(dir: Path):
     assert dir.is_dir(), '%s is not a valid directory' % dir
     for fname in dir.glob("*"):
         if is_image_file(fname):
-            path = dir / fname
+            # path = dir / fname
+            path = fname  # This is duplicating the folder name for some reason
             images.append(path)
     return images
