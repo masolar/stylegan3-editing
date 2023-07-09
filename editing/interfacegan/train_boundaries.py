@@ -25,6 +25,7 @@ class TrainConfig:
 def main(opts: TrainConfig):
     all_latent_codes, all_attribute_scores, all_ages, all_poses = [], [], [], []
     for batch_dir in tqdm(opts.input_path.glob("*")):
+        batch_dir = Path(batch_dir.name)
         if not str(batch_dir.name).startswith("id_"):
             continue
         # load batch latents
@@ -49,7 +50,7 @@ def main(opts: TrainConfig):
 
     # train all boundaries for all attributes predicted from the AnyCostGAN classifier
     for attribute_name in attr_list:
-        print("Training boundary for: {attribute_name}")
+        print(f"Training boundary for: {attribute_name}")
         attr_scores = [s[attr_list.index(attribute_name)][1] for s in all_attribute_scores]
         attr_scores = np.array(attr_scores)[:, np.newaxis]
         boundary = train_boundary(latent_codes=np.array(all_latent_codes),

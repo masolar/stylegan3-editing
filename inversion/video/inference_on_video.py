@@ -54,7 +54,6 @@ def run_inference_on_video(video_opts: VideoConfig):
     landmarks_transforms = landmarks_handler.get_landmarks_transforms(input_paths=aligned_paths,
                                                                       cropped_frames_path=video_handler.cropped_frames_path,
                                                                       aligned_frames_path=video_handler.aligned_frames_path)
-
     # run inference
     results = run_inference(input_paths=aligned_paths,
                             input_images=input_images,
@@ -69,9 +68,9 @@ def run_inference_on_video(video_opts: VideoConfig):
     result_images = [np.array(tensor2im(im))
                      for im in results["result_images"]]
     result_latents = np.array(list(results["result_latents"].values()))
-    landmarks_transforms = np.array(
-        map(lambda x: x.cpu(), list(results["landmarks_transforms"])))
-
+    landmarks_transforms = np.array(list(
+        map(lambda x: x.cpu(), list(results["landmarks_transforms"]))))
+    
     result_images_smoothed = postprocess_and_smooth_inversions(
         results, net, video_opts)
 

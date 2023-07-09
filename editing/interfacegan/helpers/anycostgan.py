@@ -34,10 +34,11 @@ def safe_load_state_dict_from_url(url, model_dir=None, map_location=None, progre
 
 
 def load_state_dict_from_url(url, key=None):
-    if url.startswith('http'):
-        sd = safe_load_state_dict_from_url(url, map_location='cpu', progress=True)
-    else:
-        sd = torch.load(url, map_location='cpu')
+    sd = torch.load('pretrained_models/attribute_predictor.pt', map_location='cpu')
+    # if url.startswith('http'):
+    #     sd = safe_load_state_dict_from_url(url, map_location='cpu', progress=True)
+    # else:
+    #     sd = torch.load(url, map_location='cpu')
     if key is not None:
         return sd[key]
     return sd

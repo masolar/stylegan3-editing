@@ -60,9 +60,10 @@ class InterFaceGANVideoEditor(VideoEditor):
 
     def edit(self, edit_direction: str, start: int, end: int, result_latents: np.ndarray,
              landmarks_transforms: Optional[np.ndarray] = None):
-        print(f"Generating video for {edit_direction} edit...")
+       
         edit_images_start, edit_images_end = [], []
         edit_latents_start, edit_latents_end = [], []
+      
         for latent, landmarks_transform in tqdm(zip(result_latents, landmarks_transforms)):
             if landmarks_transform is not None:
                 landmarks_transform = landmarks_transform.cpu().numpy()
@@ -74,7 +75,7 @@ class InterFaceGANVideoEditor(VideoEditor):
                                                                 apply_user_transformations=apply_user_transformation,
                                                                 user_transforms=landmarks_transforms)
                 edit_images_start.append(res_image)
-                edit_latents_start.append(res_latent)
+                edit_latents_start.append(res_latent.cpu())
                 # save the rightmost image in the given range
                 res_image, res_latent = self.latent_editor.edit(latents=torch.from_numpy(latent).cuda().unsqueeze(0),
                                                                 direction=edit_direction,
@@ -82,7 +83,7 @@ class InterFaceGANVideoEditor(VideoEditor):
                                                                 apply_user_transformations=apply_user_transformation,
                                                                 user_transforms=landmarks_transforms)
                 edit_images_end.append(res_image)
-                edit_latents_end.append(res_latent)
+                edit_latents_end.append(res_latent.cpu())
 
         # save latents
         latents_path = self.opts.output_path / 'latents'

@@ -15,7 +15,8 @@ from configs.paths_config import model_paths
 from editing.interfacegan.helpers import anycostgan
 from editing.interfacegan.helpers.pose_estimator import PoseEstimator
 from editing.interfacegan.helpers.age_estimator import AgeEstimator
-
+from models.stylegan3.model import SG3Generator
+from tqdm import tqdm
 
 @dataclass
 class EditConfig:
@@ -44,9 +45,11 @@ def generate_images(generator_path: Path, n_images: int, truncation_psi: float, 
 
     print('Loading generator from "%s"...' % generator_path)
     device = torch.device('cuda')
-    with open(generator_path, "rb") as f:
-        G = pickle.load(f)['G_ema'].cuda()
+    G = SG3Generator(generator_path).decoder
 
+    # with open(generator_path, "rb") as f:
+    #     G = pickle.load(f)['G_ema'].cuda()
+    #
     output_path.mkdir(exist_ok=True, parents=True)
 
     # estimator for all attributes
@@ -61,7 +64,7 @@ def generate_images(generator_path: Path, n_images: int, truncation_psi: float, 
 
     preds, ages, poses, ws = [], [], [], []
     saving_batch_id = 0
-    for seed_idx, seed in enumerate(range(n_images)):
+    for seed_idx, seed in tqdm(enumerate(range(n_images))):
 
         z = torch.from_numpy(np.random.RandomState(seed).randn(1, G.z_dim)).to(device)
         w = G.mapping(z, None, truncation_psi=truncation_psi)
