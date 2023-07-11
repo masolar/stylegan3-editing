@@ -1,0 +1,10 @@
+__pycache__
+*.png
+*.pt
+*.pkl
+*.mp4
+*.npy
+*.jpg
+*.pth
+*.dat
+*.txt
