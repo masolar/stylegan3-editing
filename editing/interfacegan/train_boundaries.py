@@ -50,7 +50,7 @@ def main(opts: TrainConfig):
 
     # train all boundaries for all attributes predicted from the AnyCostGAN classifier
     for attribute_name in attr_list:
-        print(f"Training boundary for: {attribute_name}")
+        print("Training boundary for: {attribute_name}")
         attr_scores = [s[attr_list.index(attribute_name)][1] for s in all_attribute_scores]
         attr_scores = np.array(attr_scores)[:, np.newaxis]
         boundary = train_boundary(latent_codes=np.array(all_latent_codes),
