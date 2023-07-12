@@ -25,7 +25,8 @@ model_paths = {
 	'mtcnn_onet': Path('pretrained_models/mtcnn/onet.npy'),
 	# classifiers used for interfacegan training
 	'age_estimator': Path('pretrained_models/dex_age_classifier.pth'),
-	'pose_estimator': Path('pretrained_models/hopenet_robust_alpha1.pkl')
+	'pose_estimator': Path('pretrained_models/hopenet_robust_alpha1.pkl'),
+	'arcface': Path('pretrained_models/arcface.pth')
 }
 
 styleclip_directions = {
@@ -41,6 +42,7 @@ interfacegan_aligned_edit_paths = {
 	'smile': Path('editing/interfacegan/boundaries/ffhq/Smiling_boundary.npy'),
 	'pose': Path('editing/interfacegan/boundaries/ffhq/pose_boundary.npy'),
 	'Male': Path('editing/interfacegan/boundaries/ffhq/Male_boundary.npy'),
+	'identity': Path('editing/interfacegan/boundaries/ffhq/arcface_boundary.npy')
 }
 
 interfacegan_unaligned_edit_paths = {

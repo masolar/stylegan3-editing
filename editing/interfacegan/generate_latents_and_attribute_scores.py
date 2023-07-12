@@ -90,6 +90,7 @@ def generate_images(generator_path: Path, n_images: int, truncation_psi: float, 
 
         # get attribute scores for the generated image
         logits = estimator(img).view(-1, 40, 2)[0]
+        print(logits.shape)
         attr_preds = torch.nn.functional.softmax(logits).cpu().detach().numpy()
         preds.append(attr_preds)
 

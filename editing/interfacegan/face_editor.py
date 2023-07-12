@@ -23,6 +23,7 @@ class FaceEditor:
             'smile': torch.from_numpy(np.load(paths['smile'])).cuda(),
             'pose': torch.from_numpy(np.load(paths['pose'])).cuda(),
             'Male': torch.from_numpy(np.load(paths['Male'])).cuda(),
+            'identity': torch.from_numpy(np.load(paths['identity'])).cuda()
         }
 
     def edit(self, latents: torch.tensor, direction: str, factor: int = 1, factor_range: Optional[Tuple[int, int]] = None,
@@ -30,7 +31,8 @@ class FaceEditor:
         edit_latents = []
         edit_images = []
         direction = self.interfacegan_directions[direction]
-        if factor_range is not None:  # Apply a range of editing factors. for example, (-5, 5)
+        # Apply a range of editing factors. for example, (-5, 5)
+        if factor_range is not None:
             for f in range(*factor_range):
                 edit_latent = latents + f * direction
                 edit_image, user_transforms = self._latents_to_image(edit_latent,
@@ -40,7 +42,8 @@ class FaceEditor:
                 edit_images.append(edit_image)
         else:
             edit_latents = latents + factor * direction
-            edit_images, _ = self._latents_to_image(edit_latents, apply_user_transformations)
+            edit_images, _ = self._latents_to_image(
+                edit_latents, apply_user_transformations)
         return edit_images, edit_latents
 
     def _latents_to_image(self, all_latents: torch.tensor, apply_user_transformations: bool = False,
@@ -49,7 +52,8 @@ class FaceEditor:
             if apply_user_transformations:
                 if user_transforms is None:
                     # if no transform provided, generate a random transformation
-                    user_transforms = generate_random_transform(translate=0.3, rotate=25)
+                    user_transforms = generate_random_transform(
+                        translate=0.3, rotate=25)
                 # apply the user-specified transformation
                 if type(user_transforms) == np.ndarray:
                     user_transforms = torch.from_numpy(user_transforms)
