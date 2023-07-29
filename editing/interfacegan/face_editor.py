@@ -7,7 +7,10 @@ from configs.paths_config import interfacegan_aligned_edit_paths, interfacegan_u
 from models.stylegan3.model import GeneratorType
 from models.stylegan3.networks_stylegan3 import Generator
 from utils.common import tensor2im, generate_random_transform
-
+from PIL.Image import Image
+import torch.nn as nn
+import torchvision
+from editing.interfacegan.helpers.anycostgan import attr_list
 
 class FaceEditor:
 
@@ -48,6 +51,23 @@ class FaceEditor:
 
     def _latents_to_image(self, all_latents: torch.tensor, apply_user_transformations: bool = False,
                           user_transforms: Optional[torch.tensor] = None):
+        with torch.no_grad():
+            if apply_user_transformations:
+                if user_transforms is None:
+                    # if no transform provided, generate a random transformation
+                    user_transforms = generate_random_transform(
+                        translate=0.3, rotate=25)
+                # apply the user-specified transformation
+                if type(user_transforms) == np.ndarray:
+                    user_transforms = torch.from_numpy(user_transforms)
+                self.generator.synthesis.input.transform = user_transforms.cuda().float()
+            # generate the images
+            images = self.generator.synthesis(all_latents, noise_mode='const')
+            images = [tensor2im(image) for image in images]
+        return images, user_transforms
+
+    def _latents_to_image(self, all_latents: torch.Tensor, apply_user_transformations: bool = False,
+                          user_transforms: Optional[torch.Tensor] = None):
         with torch.no_grad():
             if apply_user_transformations:
                 if user_transforms is None:

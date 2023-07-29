@@ -10,6 +10,7 @@ from PIL import Image
 from dataclasses import dataclass
 from torch import nn
 from tqdm import tqdm
+import math
 
 sys.path.append(".")
 sys.path.append("..")
@@ -20,7 +21,7 @@ from models.stylegan3.networks_stylegan3 import Generator
 from criteria.lpips.lpips import LPIPS
 from utils.common import tensor2im
 from utils.inference_utils import FULL_IMAGE_TRANSFORMS
-
+from models.arcface import ArcFaceModel
 
 @dataclass
 class RunConfig:
@@ -44,6 +45,9 @@ class RunConfig:
     lpips_lambda: float = 1.
     # L2 loss lambda
     l2_lambda: float = 1.
+    # Lambda for the identity components
+    id_lambda: float = 1
+    id_consist_lambda: float = 1
     # Number of optimization steps 
     steps: int = 350
     # LPIPS threshold value for early stopping of optimization process
@@ -184,6 +188,105 @@ class PTI:
         if l2_loss_val is not None:
             desc += f', L2: {l2_loss_val.item():.4f}'
         return desc
+
+class PTIEnhanced:
+
+    def __init__(self, opts: RunConfig):
+        self.opts = opts
+        self.device = opts.device
+        self.mse_loss = nn.MSELoss().to(self.device).eval()
+        self.lpips_loss = LPIPS(net_type='alex').to(self.device).eval()
+
+    def get_optimizer(self, generator: Generator):
+        # do not alter the fourier features
+        params = list(generator.synthesis.parameters())[3:]
+        return torch.optim.Adam(params, lr=self.opts.learning_rate)
+
+    def optimize_model(self, generator: Generator, codes: np.ndarray, target_images: Image,
+                       arcface: ArcFaceModel, avg_id: torch.Tensor, landmarks_transforms: Optional[np.ndarray] = None, image_name: Optional[str] = None):
+
+        optimizer = self.get_optimizer(generator)
+
+        image_name = image_name.split(".")[0]
+        latents = torch.from_numpy(codes).cuda().unsqueeze(0)
+        targets = FULL_IMAGE_TRANSFORMS(target_images).unsqueeze(0).cuda()
+        outputs = None
+
+        if landmarks_transforms is not None:
+            generator.synthesis.input.transform = torch.from_numpy(landmarks_transforms).cuda().float()
+
+        pbar = tqdm(range(self.opts.steps))
+        for step in pbar:
+
+            outputs = generator.synthesis(latents, noise_mode='const', force_fp32=True)
+
+            loss, lpips_loss, l2_loss_val = self.calc_loss(outputs, targets, arcface, avg_id)
+
+            if lpips_loss is not None and lpips_loss < self.opts.lpips_threshold:
+                break
+
+            description = self.get_description(step, loss, lpips_loss, l2_loss_val)
+            pbar.set_description(description)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if self.opts.save_interval is not None and step % self.opts.save_interval == 0:
+                new_image_path = self.opts.output_path / 'images' / f'step_{step}_{image_name}.jpg'
+                out_image = tensor2im(outputs[0]).resize((512, 512))
+                target_image = tensor2im(targets[0]).resize((512, 512))
+                coupled_image = np.concatenate([np.array(target_image), np.array(out_image)], axis=1)
+                Image.fromarray(coupled_image).save(new_image_path)
+
+            if step == self.opts.steps:
+                print('OMG, finished training!')
+                break
+
+        # save final image
+        final_image_path = self.opts.output_path / 'images' / f'final_{image_name}.jpg'
+        out_image = tensor2im(outputs[0]).resize((512, 512))
+        target_image = tensor2im(targets[0]).resize((512, 512))
+        coupled_image = np.concatenate([np.array(target_image), np.array(out_image)], axis=1)
+        Image.fromarray(coupled_image).save(final_image_path)
+
+        if self.opts.save_final_model:
+            model_save_path = self.opts.output_path / f'final_pti_model_{image_name}.pt'
+            torch.save(generator.state_dict(), model_save_path)
+
+    def calc_loss(self, generated_images: torch.Tensor, real_images: torch.Tensor, arcface: ArcFaceModel, avg_id: torch.Tensor):
+        loss = 0.0
+        loss_lpips = None
+        l2_loss_val = None
+        if self.opts.l2_lambda > 0:
+            l2_loss_val = self.mse_loss(generated_images, real_images)
+            loss += l2_loss_val * self.opts.l2_lambda
+        if self.opts.lpips_lambda > 0:
+            loss_lpips = self.lpips_loss(generated_images, real_images)
+            loss += loss_lpips * self.opts.lpips_lambda
+        
+
+        # This term penalizes the network for the generated images having a similar identity to the actual video
+        generated_ids = arcface(generated_images)
+        generated_ids = torch.relu((generated_ids @ avg_id.T) - math.cos(math.pi / 3))
+
+        loss += self.opts.id_lambda * torch.sum(generated_ids)
+
+        similarities = generated_ids @ generated_ids.T
+        similarities = similarities * torch.diag(torch.ones_like(similarities), 0)
+
+        loss += self.opts.id_consist_lambda * torch.sum(similarities ** 2)
+
+        return loss, loss_lpips, l2_loss_val
+
+    @staticmethod
+    def get_description(step: int, loss: torch.tensor, lpips_loss: torch.tensor, l2_loss_val: torch.tensor):
+        desc = f'Step: {step} - Loss: {loss.item():.4f}'
+        if lpips_loss is not None:
+            desc += f', LPIPS: {lpips_loss.item():.4f}'
+        if l2_loss_val is not None:
+            desc += f', L2: {l2_loss_val.item():.4f}'
+        return desc
+
 
 
 if __name__ == '__main__':

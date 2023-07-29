@@ -170,3 +170,27 @@ class StyleCLIPVideoEditor(VideoEditor):
         opts.neutral_text = "a face"
         opts.target_text = edit_direction
         return opts
+
+class GradCtrlEditor(VideoEditor):
+    def __init__(self, generator: Generator, opts: VideoConfig):
+        super().__init__(generator=generator, opts=opts)
+        styleclip_args = styleclip_edit.EditConfig()
+        self.global_direction_calculator = styleclip_edit.load_direction_calculator(generator, opts=styleclip_args)
+
+    def get_smoothed_edited_images(self, edit_latents: List, smoothed_transforms: torch.Tensor):
+        smoothed_edit_latents = smooth_s([latent[0] for latent in edit_latents])
+        edited_images_smoothed = []
+        for latent, trans in tqdm(zip(smoothed_edit_latents, smoothed_transforms)):
+            with torch.no_grad():
+                if trans is None:
+                    trans = get_identity_transform()
+                edited_image = self.expander.generate_expanded_image(all_s=latent,
+                                                                     landmark_t=trans.cpu().numpy(),
+                                                                     pixels_left=self.opts.expansion_amounts[0],
+                                                                     pixels_right=self.opts.expansion_amounts[1],
+                                                                     pixels_top=self.opts.expansion_amounts[2],
+                                                                     pixels_bottom=self.opts.expansion_amounts[3])
+            edited_images_smoothed.append(np.array(tensor2im(edited_image[0])))
+        return edited_images_smoothed
+
+
