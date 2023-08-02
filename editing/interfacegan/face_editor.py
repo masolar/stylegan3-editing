@@ -12,6 +12,7 @@ import torch.nn as nn
 import torchvision
 from editing.interfacegan.helpers.anycostgan import attr_list
 
+
 class FaceEditor:
 
     def __init__(self, stylegan_generator: Generator, generator_type=GeneratorType.ALIGNED):
@@ -25,8 +26,7 @@ class FaceEditor:
             'age': torch.from_numpy(np.load(paths['age'])).cuda(),
             'smile': torch.from_numpy(np.load(paths['smile'])).cuda(),
             'pose': torch.from_numpy(np.load(paths['pose'])).cuda(),
-            'Male': torch.from_numpy(np.load(paths['Male'])).cuda(),
-            'identity': torch.from_numpy(np.load(paths['identity'])).cuda()
+            'Male': torch.from_numpy(np.load(paths['Male'])).cuda()
         }
 
     def edit(self, latents: torch.tensor, direction: str, factor: int = 1, factor_range: Optional[Tuple[int, int]] = None,

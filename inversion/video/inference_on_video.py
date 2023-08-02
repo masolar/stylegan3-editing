@@ -68,8 +68,10 @@ def run_inference_on_video(video_opts: VideoConfig):
     result_images = [np.array(tensor2im(im))
                      for im in results["result_images"]]
     result_latents = np.array(list(results["result_latents"].values()))
-    landmarks_transforms = np.array(list(
-        map(lambda x: x.cpu(), list(results["landmarks_transforms"]))))
+
+    landmarks_transforms = torch.stack(results['landmarks_transforms']).cpu().numpy()
+    #landmarks_transforms = np.array(list(
+    #    map(lambda x: x.cpu(), list(results["landmarks_transforms"]))))
     
     result_images_smoothed = postprocess_and_smooth_inversions(
         results, net, video_opts)

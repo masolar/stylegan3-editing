@@ -253,7 +253,7 @@ class PTIEnhanced:
             model_save_path = self.opts.output_path / f'final_pti_model_{image_name}.pt'
             torch.save(generator.state_dict(), model_save_path)
 
-    def calc_loss(self, generated_images: torch.Tensor, real_images: torch.Tensor, arcface: ArcFaceModel, avg_id: torch.Tensor):
+    def calc_loss(self, generated_images: torch.Tensor, real_images: torch.Tensor):
         loss = 0.0
         loss_lpips = None
         l2_loss_val = None
@@ -264,17 +264,6 @@ class PTIEnhanced:
             loss_lpips = self.lpips_loss(generated_images, real_images)
             loss += loss_lpips * self.opts.lpips_lambda
         
-
-        # This term penalizes the network for the generated images having a similar identity to the actual video
-        generated_ids = arcface(generated_images)
-        generated_ids = torch.relu((generated_ids @ avg_id.T) - math.cos(math.pi / 3))
-
-        loss += self.opts.id_lambda * torch.sum(generated_ids)
-
-        similarities = generated_ids @ generated_ids.T
-        similarities = similarities * torch.diag(torch.ones_like(similarities), 0)
-
-        loss += self.opts.id_consist_lambda * torch.sum(similarities ** 2)
 
         return loss, loss_lpips, l2_loss_val
 

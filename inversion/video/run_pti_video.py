@@ -21,7 +21,6 @@ from inversion.datasets.pti_dataset import PTIDataset
 from inversion.scripts.run_pti_images import PTI, PTIEnhanced
 from utils.common import tensor2im
 from utils.inference_utils import FULL_IMAGE_TRANSFORMS
-from models.arcface import ArcFaceModel
 
 @dataclass
 class RunConfig:
@@ -61,18 +60,6 @@ class RunConfig:
     # Whether to store the final tuned model or not
     save_final_model: bool = True
     
-    # The path to the arcface network
-    arcface_weights_path: Path = Path('./arcface')
-
-    # The video's average identity vector
-    video_id_vec_path: Path = Path('./identity')
-
-    # The lambdas for the identity loss and the identity consistency loss
-    id_lambda: float = 1
-    id_consist_lambda: float = 1
-
-
-
 @pyrallis.wrap()
 def main(opts: RunConfig):
     opts.output_path.mkdir(exist_ok=True, parents=True)
@@ -81,11 +68,6 @@ def main(opts: RunConfig):
     generator = SG3Generator(checkpoint_path=opts.generator_path).decoder
     
     device = torch.device(opts.device)
-
-    arcface = ArcFaceModel(str(opts.arcface_weights_path), 'r50').to(device).eval()
-    arcface.requires_grad_(False)
-
-    avg_id = torch.load(opts.video_id_vec_path).to(device)
 
     latents_dict = np.load(opts.latents_path, allow_pickle=True).item()
     latents = [latents_dict[image_name] for image_name in latents_dict.keys()]
@@ -103,7 +85,7 @@ def main(opts: RunConfig):
     VideoPTIEnhanced(opts).optimize_model(generator=generator,
                                   codes=latents,
                                   target_images=targets,
-                                  landmarks_transforms=landmarks_transforms, arcface=arcface, avg_id=avg_id)
+                                  landmarks_transforms=landmarks_transforms)
     print(f"Total time: {time.time() - start}")
 
 
@@ -191,7 +173,7 @@ class VideoPTIEnhanced(PTIEnhanced):
     def __init__(self, opts: RunConfig):
         super().__init__(opts)
 
-    def optimize_model(self, generator: Generator, codes, target_images, arcface: ArcFaceModel, avg_id: torch.Tensor,
+    def optimize_model(self, generator: Generator, codes, target_images,
                        landmarks_transforms: Optional[List[np.ndarray]] = None, image_name: str = None):
 
         optimizer = self.get_optimizer(generator)
@@ -224,7 +206,7 @@ class VideoPTIEnhanced(PTIEnhanced):
 
                 outputs = generator.synthesis(latents, noise_mode='const', force_fp32=True)
 
-                loss, lpips_loss, l2_loss_val = self.calc_loss(outputs, targets, arcface, avg_id)
+                loss, lpips_loss, l2_loss_val = self.calc_loss(outputs, targets)
 
                 if lpips_loss is not None and lpips_loss < self.opts.lpips_threshold:
                     break

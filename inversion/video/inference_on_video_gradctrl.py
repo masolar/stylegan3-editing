@@ -6,7 +6,7 @@ This should hopefully create a new identity with the same emotions.
 
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Sized
 
 import numpy as np
 import pyrallis
@@ -23,7 +23,7 @@ from prepare_data.landmarks_handler import LandmarksHandler
 from inversion.video.post_processing import postprocess_and_smooth_inversions
 from editing.interfacegan.helpers import anycostgan
 from inversion.video.video_config import VideoConfig
-from inversion.video.video_editor import InterFaceGANVideoEditor, StyleCLIPVideoEditor
+from inversion.video.video_editor import InterFaceGANVideoEditor, StyleCLIPVideoEditor, VideoEditor
 from inversion.video.video_handler import VideoHandler
 from utils.common import tensor2im
 from utils.inference_utils import get_average_image, run_on_batch, load_encoder, IMAGE_TRANSFORMS
@@ -31,8 +31,36 @@ from models.arcface import ArcFaceModel
 from models.emonet import EmoNet
 from PIL.Image import Image
 from editing.interfacegan.helpers.anycostgan import attr_list
-from typing import Optional, List
+from typing import Optional, List, Iterable, Tuple
 import torchvision
+
+class BatchLoader:
+    def __init__(self, iterables: Tuple[torch.Tensor, torch.Tensor, torch.Tensor], batch_size: int):
+        self.iterables = iterables
+        self.curr_batch = 0
+        self.batch_size = batch_size
+
+    def __iter__(self):
+        self.curr_batch = 0
+        return self
+
+    def __len__(self):
+        return len(self.iterables[0]) // self.batch_size
+
+    def __next__(self):
+        if self.curr_batch >= len(self):
+            raise StopIteration
+
+        # Assume that there are 3 things in the iterable tuple
+        iterable_1 = self.iterables[0][self.curr_batch * self.batch_size:(self.curr_batch + 1) * self.batch_size]
+        iterable_2 = self.iterables[1][self.curr_batch * self.batch_size:(self.curr_batch + 1) * self.batch_size]
+        iterable_3 = self.iterables[2][self.curr_batch * self.batch_size:(self.curr_batch + 1) * self.batch_size]
+
+        returnable = (iterable_1, iterable_2, iterable_3)
+
+        self.curr_batch += 1
+
+        return returnable
 
 @pyrallis.wrap()
 def run_inference_on_video(video_opts: VideoConfig):
@@ -89,9 +117,10 @@ def run_inference_on_video(video_opts: VideoConfig):
 
     result_latents = np.array(list(results["result_latents"].values()))
 
-    landmarks_transforms = np.array(list(
-        map(lambda x: x.cpu(), list(results["landmarks_transforms"]))))
+    # landmarks_transforms = np.array(list(
+    #     map(lambda x: x.cpu(), list(results["landmarks_transforms"]))))
     
+    landmarks_transforms = torch.stack(results['landmarks_transforms'])
     result_images_smoothed = postprocess_and_smooth_inversions(
         results, net, video_opts)
 
@@ -118,61 +147,72 @@ def run_inference_on_video(video_opts: VideoConfig):
     cropped_images_tensor = torch.stack(list(map(torchvision.transforms.ToTensor(), cropped_images))).to(device)
     latents_tensor = torch.Tensor(result_latents).to(device)
     
-    landmarks_transforms_tensor = torch.stack([lt for lt in landmarks_transforms]).to(device)
-   
+    print(f'Orig: {latents_tensor}')
     edited_latents = edit(
         orig_images=cropped_images_tensor,
         latents=latents_tensor,
         id_net=arcface_net,
         emo_net=emo_net,
         anycost=estimator,
-        anycost_features=['Male', 'Age'],
+        anycost_features=['Male', 'Young'],
         generator=net.decoder,
-        user_transforms=landmarks_transforms_tensor
+        user_transforms=landmarks_transforms
     )
-
-    if opts.interfacegan_directions is not None:
-        editor = InterFaceGANVideoEditor(
+    print(f'Edited: {edited_latents}')
+    print(f'Edited shape: {edited_latents.shape}')
+    editor = InterFaceGANVideoEditor(
             generator=net.decoder, opts=video_opts)
-        for interfacegan_edit in video_opts.interfacegan_edits:
-            edit_images_start, edit_images_end, edit_latents_start, edit_latents_end = editor.edit(
-                edit_direction=interfacegan_edit.direction,
-                start=interfacegan_edit.start,
-                end=interfacegan_edit.end,
-                result_latents=result_latents,
-                landmarks_transforms=landmarks_transforms
-            )
-            edited_images_start_smoothed = editor.postprocess_and_smooth_edits(
-                results, edit_latents_start, video_opts)
-            edited_images_end_smoothed = editor.postprocess_and_smooth_edits(
-                results, edit_latents_end, video_opts)
-            editor.generate_edited_video(input_images=cropped_images,
-                                         result_images_smoothed=result_images_smoothed,
-                                         edited_images_smoothed=edited_images_start_smoothed,
-                                         video_handler=video_handler,
-                                         save_name=f"edited_video_{interfacegan_edit.direction}_start")
-            editor.generate_edited_video(input_images=cropped_images,
-                                         result_images_smoothed=result_images_smoothed,
-                                         edited_images_smoothed=edited_images_end_smoothed,
-                                         video_handler=video_handler,
-                                         save_name=f"edited_video_{interfacegan_edit.direction}_end")
 
-    if opts.styleclip_directions is not None:
-        editor = StyleCLIPVideoEditor(generator=net.decoder, opts=video_opts)
-        for styleclip_edit in video_opts.styleclip_edits:
-            edited_images, edited_latents = editor.edit(edit_direction=styleclip_edit.target_text,
-                                                        alpha=styleclip_edit.alpha,
-                                                        beta=styleclip_edit.beta,
-                                                        result_latents=result_latents,
-                                                        landmarks_transforms=landmarks_transforms)
-            edited_images_smoothed = editor.postprocess_and_smooth_edits(
-                results, edited_latents, video_opts)
-            editor.generate_edited_video(input_images=cropped_images,
-                                         result_images_smoothed=result_images_smoothed,
-                                         edited_images_smoothed=edited_images_smoothed,
-                                         video_handler=video_handler,
-                                         save_name=styleclip_edit.save_name)
+    edited_images_smoothed = editor.postprocess_and_smooth_edits(
+        results, edited_latents.detach().cpu().numpy(), video_opts)
+    editor.generate_edited_video(input_images=cropped_images,
+         result_images_smoothed=result_images_smoothed,
+         edited_images_smoothed=edited_images_smoothed,
+         video_handler=video_handler,
+         save_name=f"edited_video_speedup")
 
+    # if opts.interfacegan_directions is not None:
+    #     editor = InterFaceGANVideoEditor(
+    #         generator=net.decoder, opts=video_opts)
+    #     for interfacegan_edit in video_opts.interfacegan_edits:
+    #         edit_images_start, edit_images_end, edit_latents_start, edit_latents_end = editor.edit(
+    #             edit_direction=interfacegan_edit.direction,
+    #             start=interfacegan_edit.start,
+    #             end=interfacegan_edit.end,
+    #             result_latents=result_latents,
+    #             landmarks_transforms=landmarks_transforms
+    #         )
+    #         edited_images_start_smoothed = editor.postprocess_and_smooth_edits(
+    #             results, edit_latents_start, video_opts)
+    #         edited_images_end_smoothed = editor.postprocess_and_smooth_edits(
+    #             results, edit_latents_end, video_opts)
+    #         editor.generate_edited_video(input_images=cropped_images,
+    #                                      result_images_smoothed=result_images_smoothed,
+    #                                      edited_images_smoothed=edited_images_start_smoothed,
+    #                                      video_handler=video_handler,
+    #                                      save_name=f"edited_video_{interfacegan_edit.direction}_start")
+    #         editor.generate_edited_video(input_images=cropped_images,
+    #                                      result_images_smoothed=result_images_smoothed,
+    #                                      edited_images_smoothed=edited_images_end_smoothed,
+    #                                      video_handler=video_handler,
+    #                                      save_name=f"edited_video_{interfacegan_edit.direction}_end")
+    #
+    # if opts.styleclip_directions is not None:
+    #     editor = StyleCLIPVideoEditor(generator=net.decoder, opts=video_opts)
+    #     for styleclip_edit in video_opts.styleclip_edits:
+    #         edited_images, edited_latents = editor.edit(edit_direction=styleclip_edit.target_text,
+    #                                                     alpha=styleclip_edit.alpha,
+    #                                                     beta=styleclip_edit.beta,
+    #                                                     result_latents=result_latents,
+    #                                                     landmarks_transforms=landmarks_transforms)
+    #         edited_images_smoothed = editor.postprocess_and_smooth_edits(
+    #             results, edited_latents, video_opts)
+    #         editor.generate_edited_video(input_images=cropped_images,
+    #                                      result_images_smoothed=result_images_smoothed,
+    #                                      edited_images_smoothed=edited_images_smoothed,
+    #                                      video_handler=video_handler,
+    #                                      save_name=styleclip_edit.save_name)
+    #
 
 def edit(orig_images: torch.Tensor,
          latents: torch.Tensor,
@@ -182,7 +222,7 @@ def edit(orig_images: torch.Tensor,
          anycost_features: List[str],
          generator: nn.Module,
          num_exclude_dims = 4000,
-         factor: int = 1,
+         factor: float = 4/9,
          user_transforms: torch.Tensor = None) -> torch.Tensor:
     '''
     Computes edited latent vectors for the given arguments
@@ -209,87 +249,118 @@ def edit(orig_images: torch.Tensor,
     emo_net.requires_grad_(True)
     generator.requires_grad_(True)
     anycost.requires_grad_(True)
-
+    
+    arcface_transform = lambda image: (image - .5) / .5
     emonet_transform = lambda image: torchvision.transforms.Resize((256, 256))(image)
-   
-    for image, latent, transform in zip(orig_images, latents, user_transforms):
-        image = image.unsqueeze(0)
-        latent = latent.unsqueeze(0)
-       
-        transform = transform.unsqueeze(0)
+    
+    batch_size = 3
+
+    # Create a batch data loader
+    loader = BatchLoader((orig_images, latents, user_transforms), batch_size)
+    
+    #for image, latent, transform in tqdm(zip(orig_images, latents, user_transforms), total=len(orig_images)):
+    for (image, latent, transform) in tqdm(loader):
+        batch_size = latent.shape[0]
+        # image = image.unsqueeze(0)
+        latent = latent.flatten().unsqueeze(0)
+        # transform = transform.unsqueeze(0)
 
         # Compute the identity and emotion of the given image
         with torch.no_grad():
-            id_vec = id_net((_latents_to_image(generator, latent, transform) - .5 ) / .5).squeeze()
-            emo_out = emo_net(emonet_transform(image))
-            actual_val = emo_out['valence']
-            actual_arousal = emo_out['arousal']
+            # Get the ground truth values from the original images
+            id_vec = id_net(arcface_transform(image)).squeeze()
+            #emo_out = emo_net(emonet_transform(image))
+            #actual_val = emo_out['valence']
+            #actual_arousal = emo_out['arousal']
         
-        for _ in range(101):
+        for i in range(101):
             # Compute the identity and emotion for the reconstruction image
             latent.requires_grad_(True)
-            recon_id_vec = _latents_to_image(generator, latent, transform)
-            loss = recon_id_vec.sum()
-            id_grad = torch.autograd.grad(outputs=loss,inputs=latent)
-            print(id_grad)
-            # recon_id_vec = id_net((_latents_to_image(generator, latent, transform) - .5) / .5).squeeze()
-            #
-            # loss = torch.dot(recon_id_vec, id_vec)
-            #
-            # id_grad = torch.autograd.grad(outputs=loss,
-            #                               inputs=latent)[0]
-            id_dims_to_exclude = id_grad.detach().squeeze().cpu().numpy()
-            id_dims_to_exclude = np.argsort(id_dims_to_exclude)[-num_exclude_dims:]
+            
+            # Generate an image from the latent vector given
+            gen_image = _latents_to_image(generator, latent, transform)
+            recon_id_vec = id_net(arcface_transform(gen_image)).squeeze()
+            
+            loss = torch.sum(-torch.diag(recon_id_vec @ id_vec.T) + 1)
+            
+            id_grad = torch.autograd.grad(outputs=loss,
+                                           inputs=latent)[0]
+            id_dims_to_exclude = id_grad.detach().squeeze()
+            id_dims_to_exclude = torch.abs(id_dims_to_exclude)
+            id_dims_to_exclude = torch.argsort(id_dims_to_exclude)[-num_exclude_dims:]
 
-            recon_emo_out = emo_net(emonet_transform(_latents_to_image(generator, latent, transform)))
+            gen_image = _latents_to_image(generator, latent, transform)
+            recon_emo_out = emo_net(emonet_transform(gen_image))
             recon_val = recon_emo_out['valence']
             recon_arousal = recon_emo_out['arousal']
 
-            loss = torch.sqrt((actual_val - recon_val) ** 2 + (actual_arousal - recon_arousal) ** 2)
+            #loss = torch.sqrt((actual_val - recon_val) ** 2 + (actual_arousal - recon_arousal) ** 2)
 
-            emo_grad = torch.autograd.grad(outputs=loss,
-                                           inputs=latent)[0]
-            emo_dims_to_exclude = emo_grad.detach().squeeze().cpu().numpy()
-            emo_dims_to_exclude = np.argsort(emo_dims_to_exclude)[-num_exclude_dims:]
+            #emo_grad = torch.autograd.grad(outputs=loss,
+                                           # inputs=latent,
+                                           # retain_graph=True)[0]
+            #emo_dims_to_exclude = emo_grad.detach().squeeze()
+            #emo_dims_to_exclude = torch.abs(emo_dims_to_exclude)
+            #emo_dims_to_exclude = torch.argsort(emo_dims_to_exclude)[-num_exclude_dims:]
 
             # Next, compute the gradient for the random networks so we can mask things
             dims_to_exclude = []
-            for feature in anycost_features:
-                with torch.no_grad():
-                    # Get the result of the classifier on the original image for comparison
-                    img_vec = torch.nn.functional.softmax(anycost(image).view(-1, 40, 2)[0])[attr_list.index(feature)]
-
-                recon_img_vec = torch.nn.functional.softmax(anycost(_latents_to_image(generator, latent, transform)).view(-1, 40, 2)[0])[attr_list.index(feature)]
-
-                loss = torch.nn.MSELoss()(img_vec, recon_img_vec)
-
-                dim_c = torch.autograd.grad(outputs=loss,
-                                            inputs=latent)[0]
-
-                dim_c = dim_c.detach().squeeze().cpu().numpy()
-                excluded = np.argsort(dim_c)[-num_exclude_dims:]
-                dims_to_exclude.append(excluded)
+            with torch.no_grad():
+                img_vec = torch.nn.functional.softmax(anycost(image).view(-1, 40, 2)[0], dim=0)[[attr_list.index(feature) for feature in anycost_features]]
             
-            if len(dims_to_exclude) > 0:
-                dims_to_exclude = np.unique(
-                    np.concatenate(dims_to_exclude))
-                id_mask = torch.ones(1, 512 * 16, 1).cuda()
-                emo_mask = torch.ones(1, 512 * 16, 1).cuda()
-                id_mask[:, dims_to_exclude, :] = 0
-                id_mask[:, emo_dims_to_exclude] = 0
-                emo_mask[:, dims_to_exclude, :] = 0
-                emo_mask[:, id_dims_to_exclude, :] = 0
+            gen_image = _latents_to_image(generator, latent, transform)
+            recon_img_vec = torch.nn.functional.softmax(anycost(gen_image).view(-1, 40, 2)[0], dim=0)[[attr_list.index(feature) for feature in anycost_features]]
+            
+            loss = torch.nn.MSELoss()(img_vec, recon_img_vec)
 
+            dim_c = torch.autograd.grad(outputs=loss,
+                                        inputs=latent)[0]
+
+            dim_c = dim_c.detach().squeeze()
+            dim_c = torch.abs(dim_c)
+            excluded = torch.argsort(dim_c)[-num_exclude_dims:]
+            dims_to_exclude = excluded.flatten().unique()
+
+            # for feature in anycost_features:
+            #     with torch.no_grad():
+            #         # Get the result of the classifier on the original image for comparison
+            #         img_vec = torch.nn.functional.softmax(anycost(image).view(-1, 40, 2)[0])[attr_list.index(feature)]
+            #
+            #     recon_img_vec = torch.nn.functional.softmax(anycost(gen_image).view(-1, 40, 2)[0])[attr_list.index(feature)]
+            #
+            #     loss = torch.nn.MSELoss()(img_vec, recon_img_vec)
+            #
+            #     dim_c = torch.autograd.grad(outputs=loss,
+            #                                 inputs=latent,
+            #                                 retain_graph=True)[0]
+            #
+            #     dim_c = dim_c.detach().squeeze()
+            #     dim_c = torch.abs(dim_c)
+            #     excluded = torch.argsort(dim_c)[-num_exclude_dims:]
+            #     dims_to_exclude.append(excluded)
+             
+            if len(dims_to_exclude) > 0:
+                #dims_to_exclude = torch.unique(
+                #    torch.cat(dims_to_exclude))
+                id_mask = torch.ones(1, batch_size * 512 * 16).cuda()
+                #emo_mask = torch.ones(1, 512 * 16).cuda()
+                id_mask[:, dims_to_exclude] = 0
+                #id_mask[:, emo_dims_to_exclude] = 0
+                #emo_mask[:, dims_to_exclude] = 0
+                #emo_mask[:, id_dims_to_exclude] = 0
+                
                 id_grad *= id_mask
-                emo_grad *= emo_mask
+                #emo_grad *= emo_mask
+
             id_grad /= torch.norm(id_grad)
-            emo_grad /= torch.norm(emo_grad)
+            #emo_grad /= torch.norm(emo_grad)
 
             with torch.no_grad():
-                latent = latent - (id_grad * factor) + (emo_grad * factor)
-        edited_latents.append(latent)
+                latent = latent - (id_grad * factor)# - (emo_grad * factor)
 
-    return torch.Tensor(edited_latents)
+        edited_latents.append(latent.detach().reshape(-1, 16, 512))
+
+    return torch.cat(edited_latents)
             
 def run_inference(input_paths: List[Path], input_images: List, landmarks_transforms: Dict[str, Any], net,
                   opts: TrainOptions):
@@ -326,12 +397,13 @@ def _latents_to_image(generator: nn.Module,
                       user_transforms: torch.Tensor):
     """
     Converts a latent vector to actual images, using the transforms supplied to generate
-    translated and rotated images
+    translated and rotated images. The latent vector should have shape n x 8192.
     """
     #with torch.no_grad():
+    # Reshape the latent vector to fit in the network
     generator.synthesis.input.transform = user_transforms.float()
     # generate the images
-    image = generator.synthesis(latent, noise_mode='const')
+    image = generator.synthesis(latent.reshape(-1, 16, 512), noise_mode='const')
     # image = tensor2im(image.squeeze())
     return image
 
