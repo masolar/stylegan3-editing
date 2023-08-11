@@ -7,7 +7,7 @@ from typing import Iterable, Union, Tuple
 from pathlib import Path
 
 
-def cache_images(generator: Iterable[Tuple[torch.Tensor, Union[Path, str, bytes]]]) -> Iterable[Tuple[torch.Tensor, Union[Path, str, bytes]]]:
+def cache_images(generator: Iterable[Tuple[torch.Tensor, Path]]) -> Iterable[Tuple[torch.Tensor, Path]]:
     '''
     A simple wrapper over a generator that writes an image Tensor to its associated path
 
@@ -19,9 +19,9 @@ def cache_images(generator: Iterable[Tuple[torch.Tensor, Union[Path, str, bytes]
     '''
     for image, image_path in generator:
         # Convert image to the form PyTorch needs for saving
-        image = image * 255
-        image = image.to(torch.uint8)
+        pil_image = image * 255
+        pil_image = pil_image.to(torch.uint8)
 
-        write_jpeg(image, str(image_path))
+        write_jpeg(pil_image, str(image_path))
 
         yield image, image_path

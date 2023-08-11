@@ -33,7 +33,8 @@ def load_encoder(checkpoint_path: Path, test_opts: Optional[TestOptions] = None,
     if opts['stylegan_weights'] == Path(model_paths["stylegan3_ffhq"]):
         opts['stylegan_weights'] = Path(model_paths["stylegan3_ffhq_pt"])
     if opts['stylegan_weights'] == Path(model_paths["stylegan3_ffhq_unaligned"]):
-        opts['stylegan_weights'] = Path(model_paths["stylegan3_ffhq_unaligned_pt"])
+        opts['stylegan_weights'] = Path(
+            model_paths["stylegan3_ffhq_unaligned_pt"])
 
     if opts["encoder_type"] in ENCODER_TYPES['pSp']:
         opts = TrainOptions(**opts)
@@ -48,7 +49,8 @@ def load_encoder(checkpoint_path: Path, test_opts: Optional[TestOptions] = None,
 
     print('Model successfully loaded!')
     if generator_path is not None:
-        print(f"Updating SG3 generator with generator from path: {generator_path}")
+        print(
+            f"Updating SG3 generator with generator from path: {generator_path}")
         net.decoder = SG3Generator(checkpoint_path=generator_path).decoder
 
     net.eval()
@@ -74,7 +76,8 @@ def run_on_batch(inputs: torch.tensor, net, opts: TrainOptions, avg_image: torch
 
     for iter in range(opts.n_iters_per_batch):
         if iter == 0:
-            avg_image_for_batch = avg_image.unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1)
+            avg_image_for_batch = avg_image.unsqueeze(
+                0).repeat(inputs.shape[0], 1, 1, 1)
             x_input = torch.cat([inputs, avg_image_for_batch], dim=1)
         else:
             x_input = torch.cat([inputs, y_hat], dim=1)
@@ -109,3 +112,27 @@ def run_on_batch(inputs: torch.tensor, net, opts: TrainOptions, avg_image: torch
         y_hat = net.face_pool(y_hat)
 
     return results_batch, results_latent
+
+
+def latents_to_image(generator: SG3Generator,
+                     latent: torch.Tensor,
+                     user_transforms: Optional[torch.Tensor]) -> torch.Tensor:
+    """
+    Converts a latent vector to actual images, using the transforms supplied to generate
+    translated and rotated images.
+
+    Arguments:
+        generator: The generator network from the GAN
+        latent: The latent vector to use for generation. Should be n x 16 x 512.
+        user_transforms: The transformations used by the generator for shifts and rotations.
+
+    Returns:
+        An n x 3 x 256 x 256 tensor represnting the output images
+
+    """
+    if user_transforms:
+        generator.input.transform = user_transforms.float()
+
+    image = generator.synthesis(latent, noise_mode='const')
+
+    return image
