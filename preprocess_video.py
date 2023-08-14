@@ -14,6 +14,9 @@ import torch
 import dlib
 from utils.alignment_utils import align_face_optional, get_alignment_positions_img, get_alignment_transformation
 from utils.images import crop_transform
+from torchvision.io import read_image
+from prepare_data.landmarks_handler import get_inverse_transform
+from itertools import takewhile
 
 
 @dataclass
@@ -84,7 +87,7 @@ def main(opts: PreprocessOpts):
     aligned_frame_generator = cache_images(
         aligned_frame_generator)
 
-    list(aligned_frame_generator)
+    # list(aligned_frame_generator)
 
     # Now we generate cropped frames
     cropped_frame_generator = get_video_frame_generator(opts.video_path)
@@ -121,7 +124,42 @@ def main(opts: PreprocessOpts):
     cropped_frame_generator = cache_images(cropped_frame_generator)
 
     # Force the generators to run
-    list(cropped_frame_generator)
+    # list(cropped_frame_generator)
+
+    # We should also calculate the inverse transforms between images while we're here
+    # First, create a set of cropped image paths and aligned image paths
+    aligned_image_paths = set(
+        map(lambda path: path.name, aligned_frames_path.iterdir()))
+    cropped_image_paths = set(
+        map(lambda path: path.name, cropped_frames_path.iterdir()))
+
+    # Create a generator the gives matching images between the two
+    image_path_pairs = ((aligned_frames_path / image_name, cropped_frames_path / image_name)
+                        if image_name in aligned_image_paths else None for image_name in cropped_image_paths)
+    image_path_pairs = filter(
+        lambda entry: entry is not None, image_path_pairs)
+
+    # Find inverse transforms between the pairs of images
+    image_generator = map(lambda entry: (entry[0], read_image(
+        str(entry[0])) / 255.0, read_image(str(entry[1])) / 255.0), image_path_pairs)
+
+    # This generator should pair up a filename with an inverse transform
+    inverse_generator = map(lambda entry: (entry[0].name, get_inverse_transform(
+        entry[1], entry[2], detector, predictor)), image_generator)
+
+    # Remove frames that didn't have transforms found
+    inverse_generator = filter(
+        lambda entry: entry[1] is not None, tqdm(inverse_generator))
+
+    # inverse_generator = takewhile(
+    #    lambda entry: entry[0] < 10, enumerate(inverse_generator))
+
+    # The dictionary should hold a filename along with the inverse transform
+    inverse_dict = {filename: transform for filename,
+                    transform in inverse_generator}
+
+    # Then we can save the transforms for later
+    torch.save(inverse_dict, opts.output_path / 'inverse_transforms.pth')
 
 
 if __name__ == '__main__':
