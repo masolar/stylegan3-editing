@@ -16,7 +16,7 @@ from utils.model_utils import ENCODER_TYPES
 
 IMAGE_TRANSFORMS = transforms.Compose([
     transforms.Resize((256, 256)),
-    transforms.ToTensor(),
+    # transforms.ToTensor(),
     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
 
 FULL_IMAGE_TRANSFORMS = transforms.Compose([
@@ -112,6 +112,52 @@ def run_on_batch(inputs: torch.tensor, net, opts: TrainOptions, avg_image: torch
         y_hat = net.face_pool(y_hat)
 
     return results_batch, results_latent
+
+
+def run_on_batch_senseful(inputs: torch.Tensor, net, avg_image: torch.Tensor,
+                          landmarks_transform: Optional[torch.Tensor] = None, n_iters_per_batch=3):
+    results_batch = {idx: [] for idx in range(inputs.shape[0])}
+    results_latent = {idx: [] for idx in range(inputs.shape[0])}
+    y_hat, latent = None, None
+
+    for iter in range(n_iters_per_batch):
+        if iter == 0:
+            avg_image_for_batch = avg_image.unsqueeze(
+                0).repeat(inputs.shape[0], 1, 1, 1)
+            x_input = torch.cat([inputs, avg_image_for_batch], dim=1)
+        else:
+            x_input = torch.cat([inputs, y_hat], dim=1)
+
+        is_last_iteration = iter == n_iters_per_batch - 1
+
+        res = net.forward(x_input,
+                          latent=latent,
+                          landmarks_transform=landmarks_transform,
+                          return_aligned_and_unaligned=True,
+                          return_latents=True,
+                          resize=False)
+
+        # if no landmark transforms are given, return the aligned output image
+        if landmarks_transform is None:
+            y_hat, latent = res
+
+        # otherwise, if current iteration is not the last, return the aligned output; else return final unaligned output
+        else:
+            # note: res = images, unaligned_images, codes
+            if is_last_iteration:
+                _, y_hat, latent = res
+            else:
+                y_hat, _, latent = res
+
+        # store intermediate outputs
+        for idx in range(inputs.shape[0]):
+            results_batch[idx].append(y_hat[idx])
+            results_latent[idx].append(latent[idx].cpu().numpy())
+
+        # resize input to 256 before feeding into next iteration
+        y_hat = net.face_pool(y_hat)
+    print(f'Batch shape: {results_batch.shape}')
+    return results_batch[0][-1], results_latent[0][-1]
 
 
 def latents_to_image(generator: SG3Generator,

@@ -2,9 +2,11 @@
 Code adopted from pix2pixHD (https://github.com/NVIDIA/pix2pixHD/blob/master/data/image_folder.py)
 """
 from pathlib import Path
-from typing import Iterator, Iterable
+from typing import Iterator, Iterable, Dict, Tuple
 import torch
 import math
+from torch.utils.data import Dataset
+from torchvision.io import read_image
 
 IMG_EXTENSIONS = [
     '.jpg', '.JPG', '.jpeg', '.JPEG',
@@ -53,3 +55,32 @@ class tensor_batcher(Iterator):
                 input_lst = []
         if len(input_lst) > 0:
             yield input_lst
+
+
+class ImageAndTransformsDataset(Dataset):
+    def __init__(self, images_path: Path, transform_dict: Dict[str, torch.Tensor]):
+        '''
+        Creates a dataset from a set of video frames along with their transforms
+
+        Arguments:
+            images_path: The video frames that should be loaded
+            transform_path: The path to the file containing transform data
+        '''
+        self.transform_dict = transform_dict
+
+        # Build up the pairs of images and transforms
+        self.img_trans_pairs = []
+        for path in images_path.iterdir():
+            if path.name in self.transform_dict:
+                self.img_trans_pairs.append(
+                    (path, self.transform_dict[path.name]))
+
+        self.img_trans_pairs = sorted(
+            self.img_trans_pairs, key=lambda pair: int(pair[0].stem))
+
+    def __len__(self):
+        return len(self.img_trans_pairs)
+
+    def __getitem__(self, index) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Return both the image and the transformation for it
+        return read_image(str(self.img_trans_pairs[index][0])) / 255.0, self.img_trans_pairs[index][1]

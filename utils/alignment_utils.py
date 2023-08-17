@@ -342,3 +342,43 @@ def get_stylegan_transform(unaligned_path: str, aligned_path: str, detector, pre
     except Exception as e:
         # print(f"Failed aligning image: {aligned_path}. Got exception: {e}")
         return None
+
+
+def get_stylegan_transform_img(unaligned_img: np.ndarray, aligned_img: np.ndarray, detector, predictor):
+    '''
+    The same code as above, but acts on images instead of paths to images
+    '''
+    try:
+        aligned_img_lm = get_landmark_img(aligned_img, detector, predictor)
+        aligned_left_eye, aligned_right_eye = get_eyes_coors(aligned_img_lm)
+        unaligned_img_lm = get_landmark_img(unaligned_img, detector, predictor)
+        unaligned_left_eye, unaligned_right_eye = get_eyes_coors(
+            unaligned_img_lm)
+
+        rotation_angle = get_rotation_from_eyes(left_eye_unaligned=unaligned_left_eye,
+                                                right_eye_unaligned=unaligned_right_eye,
+                                                left_eye_aligned=aligned_left_eye,
+                                                right_eye_aligned=aligned_right_eye)
+
+        # This part has to be a PIL image, because of course it does
+        aligned_img = Image.fromarray(aligned_img)
+        rotated_aligned_image = aligned_img.rotate(rotation_angle)
+        aligned_img = np.asarray(aligned_img)
+        rotated_aligned_image = np.asarray(rotated_aligned_image)
+
+        rotated_aligned_img_lm = get_landmark_img(
+            rotated_aligned_image, detector, predictor)
+        rotated_aligned_left_eye, rotated_aligned_right_eye = get_eyes_coors(
+            rotated_aligned_img_lm)
+
+        translation = (unaligned_left_eye -
+                       rotated_aligned_left_eye) / aligned_img.shape[0]
+
+        transform = make_transform(translation, rotation_angle)
+        inverse_transform = np.linalg.inv(transform)
+
+        return rotation_angle, translation, transform, inverse_transform
+
+    except Exception as e:
+        # print(e)
+        return None

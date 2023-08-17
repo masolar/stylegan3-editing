@@ -2,13 +2,13 @@ from os import PathLike
 import torch
 from pathlib import Path
 from torchvision.io import read_image, read_video, write_video
-from torchvision.transforms import ToTensor
+from torchvision.transforms import ToTensor, ToPILImage
 from typing import Tuple, Union, Iterator, Iterable
 from torch.utils.data import Dataset
 import cv2
 
 
-def generate_mp4(filepath: Union[str, PathLike, bytes], frames: torch.Tensor, fps: float = 24):
+def generate_mp4(filepath: Union[str, PathLike, bytes], frames: Iterable[torch.Tensor], fps: float = 24, size=(1024, 1024)):
     """
     Generates an mp4 from a tensor.
 
@@ -17,13 +17,22 @@ def generate_mp4(filepath: Union[str, PathLike, bytes], frames: torch.Tensor, fp
         frames: The tensor representing the frames of the video. Should be T x C x H x W with range [0, 1]
         fps: The fps of the resulting video
     """
+    # OpenCV is used so the writing can be lazy, otherwise,
+    # the whole tensor has to be copied, making the process slow
+    vw = cv2.VideoWriter(
+        str(filepath), cv2.VideoWriter_fourcc(*'mp4v'), 24, size)
+
     # The torch api takes in a tensor of shape T x H x W x C as a uint8, so we'll convert it
-    frames = frames.permute(0, 2, 3, 1)
+    # We also have to be careful because permute returns a view
+    for frame in frames:
+        frame_cpy = torch.clone(frame)
+        frame_cpy = (frame_cpy * 255).to(torch.uint8).permute(1, 2, 0).numpy()
+        frame_cpy = cv2.cvtColor(frame_cpy, cv2.COLOR_BGR2RGB)
+        # frame_cpy = PIL_Transform(frame_cpy)
 
-    frames *= 255
-    frames = frames.to(torch.uint8)
+        vw.write(frame_cpy)
 
-    write_video(str(filepath), frames, fps=fps)
+    vw.release()
 
 
 class video_reader(Iterator[torch.Tensor]):
